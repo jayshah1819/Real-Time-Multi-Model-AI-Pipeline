@@ -1,6 +1,7 @@
 # Real-Time-Multi-Model-AI-Pipeline
 
 ## Features
+
 - INT8 quantized YOLO object detection
 - Custom CUDA preprocessing kernels
 - Multi-stream scheduling with CUDA events
