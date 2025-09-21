@@ -55,10 +55,16 @@ cap.release()
 calibration_data = np.array(calibration_frames)
 print("Calibration data shape:", calibration_data.shape)
 
-#
 
-calibration_images=np.random.rand(32,3,224,224).astype(np.float32)
+from ultralytics import YOLO
 
+model = YOLO("yolov8n.pt")
+
+
+onnx_path = "/content/yolov8n.pt"
+model.export(format="onnx", opset=17, dynamic=False, simplify=True, imgsz=640)
+
+calibration_images = np.random.rand(32, 3, 224, 224).astype(np.float32)
 
 
 class MyCalibrator(trt.IInt8EntropyCalibrator2):
@@ -81,7 +87,7 @@ class MyCalibrator(trt.IInt8EntropyCalibrator2):
     def get_batch(self, names):
         if self.index + self.batch_size > len(self.data):
             return None
-        batch = self.data[self.index:self.index+self.batch_size].ravel()
+        batch = self.data[self.index : self.index + self.batch_size].ravel()
         if self.device_input is None:
             self.device_input = cuda.mem_alloc(batch.nbytes)
         cuda.memcpy_htod(self.device_input, batch)
@@ -100,6 +106,6 @@ class MyCalibrator(trt.IInt8EntropyCalibrator2):
             f.write(cache)
 
     def __del__(self):
-        if hasattr(self, 'ctx'):
+        if hasattr(self, "ctx"):
             self.ctx.pop()
             self.ctx.detach()
