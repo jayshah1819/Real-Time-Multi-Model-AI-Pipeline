@@ -8,3 +8,4 @@
 - Custom TensorRT plugins
 - Progressive inference loops
 - Dynamic model pruning
+  git push origin main
