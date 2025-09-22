@@ -28,32 +28,8 @@ import pycuda.driver as cuda
 import onnx
 import os
 
-import cv2
 
 video_path = "/content/4K Road traffic video for object detection and tracking - free download now! - Karol Majek (360p, h264).mp4"
-
-
-cap = cv2.VideoCapture(video_path)
-calibration_frames = []
-frame_count = 0
-max_frames = 100
-
-while cap.isOpened() and frame_count < max_frames:
-    ret, frame = cap.read()
-    if not ret:
-        break
-
-    frame = cv2.resize(frame, (640, 640))
-    frame = frame.astype(np.float32) / 255.0
-    frame = np.transpose(frame, (2, 0, 1))
-    calibration_frames.append(frame)
-    frame_count += 1
-
-cap.release()
-
-# Stack frames for easier batching
-calibration_data = np.array(calibration_frames)
-print("Calibration data shape:", calibration_data.shape)
 
 
 from ultralytics import YOLO
@@ -109,3 +85,13 @@ class MyCalibrator(trt.IInt8EntropyCalibrator2):
         if hasattr(self, "ctx"):
             self.ctx.pop()
             self.ctx.detach()
+
+    TRT_LOGGER = trt.Logger(trt.Logger.INFO)
+    builder = trt.Builder(TRT_LOGGER)
+    network = builder.create_network(
+        flags=1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+    )
+    parser = trt.OnnxParser(network, TRT_LOGGER)
+
+    with open(onnx_path, "rb") as f:
+        parser.parse(f.read())

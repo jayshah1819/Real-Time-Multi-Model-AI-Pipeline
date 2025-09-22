@@ -1,21 +1,46 @@
+
+// This file implements CUDA kernels for preprocessing image batches for deep learning inference.
+// The main steps are:
+// 1. Takes raw input images (uint8 format).
+// 2. Resizes them to target width/height with bilinear interpolation.
+// 3. Converts from BGR to RGB if needed.
+// 4. Normalizes pixel values (scaling, subtract mean, divide by std).
+// 5. Packs the results into a GPU tensor suitable for inference.
+
+
+// Bilinear interpolation explanation:
+// Bilinear interpolation is a resampling technique used to estimate the value of a pixel
+// at a non-integer (floating point) position within a 2D grid (such as an image).
+// It works by performing linear interpolation first in one direction (e.g., x-axis),
+// then in the other direction (e.g., y-axis), using the four nearest neighboring pixels.
+// The result is a smooth, weighted average that provides better visual quality than
+// nearest-neighbor interpolation, especially when resizing images.
+
+
 #include "fused_preprocess.cuh"
 #include "../common/cuda_utils.hpp"
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
 
+// Bilinear interpolation function:
 __device__ __forceinline__ float bilinear_interpolate(
     const uint8_t* src, int src_width, int src_height, int channels,
     float x, float y, int c) {
     
+
+    // Calculate coordinates of the 4 surrounding pixels
+    //top-left, top-right, bottom-left, bottom-right
     int x1 = __float2int_rd(x);
     int y1 = __float2int_rd(y);
     int x2 = min(x1 + 1, src_width - 1);
     int y2 = min(y1 + 1, src_height - 1);
     
+    //fractions for 2x2 pixel interpolation
     float dx = x - x1;
     float dy = y - y1;
     
+    //Compute 1D indices for the 2x2 pixels
     int idx_tl = (y1 * src_width + x1) * channels + c;
     int idx_tr = (y1 * src_width + x2) * channels + c;
     int idx_bl = (y2 * src_width + x1) * channels + c;
@@ -25,12 +50,13 @@ __device__ __forceinline__ float bilinear_interpolate(
     float tr = src[idx_tr];
     float bl = src[idx_bl];
     float br = src[idx_br];
-    
+
+    //Interpolate horizontally
     float top = tl + dx * (tr - tl);
     float bottom = bl + dx * (br - bl);
+    
     return top + dy * (bottom - top);
 }
-
 
 __global__ void fused_preprocess_kernel(
     const uint8_t* __restrict__ src_frames,
