@@ -54,9 +54,23 @@ __device__ __forceinline__ float bilinear_interpolate(
     //Interpolate horizontally
     float top = tl + dx * (tr - tl);
     float bottom = bl + dx * (br - bl);
-    
+
     return top + dy * (bottom - top);
 }
+
+/**
+ * 
+ *
+ * Each GPU thread processes a single output pixel for a given image. The kernel computes the corresponding
+ * source pixel location using geometric mapping, and applies bilinear interpolation to obtain a smooth pixel value.
+ * Optionally, the kernel converts the color format from BGR to RGB. It then applies scaling and normalization
+ * to the pixel value as required by the model's input specification. The final result is stored in a contiguous
+ * GPU tensor, ready for consumption by deep learning models.
+ *
+ * 
+ */
+//Each GPU thread handles one output pixel of one image.
+
 
 __global__ void fused_preprocess_kernel(
     const uint8_t* __restrict__ src_frames,
@@ -71,22 +85,30 @@ __global__ void fused_preprocess_kernel(
     const float* __restrict__ std_vals) {
     
 
+//Calculate output pixel coordinates and batch index
     int dst_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int dst_y = blockIdx.y * blockDim.y + threadIdx.y;
+    int dst_y= blockIdx.y * blockDim.y + threadIdx.y;
     int batch_idx = blockIdx.z * blockDim.z + threadIdx.z;
-
+//Bounds check
     if (dst_x >= dst_width || dst_y >= dst_height || batch_idx >= batch_size) {
         return;
     }
     
- 
-    float scale_x = (float)src_width / dst_width;
+ //Compute scale factors.
+    float scale_x= (float)src_width / dst_width;
     float scale_y = (float)src_height / dst_height;
+
+//Maps destination pixel coordinate → source pixel coordinate.
+//The +0.5 and -0.5 shifts are to align pixel centers (not edges), 
+//which makes bilinear interpolation smoother and less blurry.
+
     float src_x = (dst_x + 0.5f) * scale_x - 0.5f;
     float src_y = (dst_y + 0.5f) * scale_y - 0.5f;
-    
 
-    src_x = fmaxf(0.0f, fminf(src_x, src_width - 1.0f));
+
+Clamp to valid bounds of the source image
+
+    src_x= fmaxf(0.0f, fminf(src_x, src_width - 1.0f));
     src_y = fmaxf(0.0f, fminf(src_y, src_height - 1.0f));
     
 
