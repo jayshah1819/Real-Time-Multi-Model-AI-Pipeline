@@ -1,0 +1,48 @@
+name: "face_recognition"
+platform: "tensorrt_plan"
+max_batch_size: 32
+
+input [
+  {
+    name: "input"
+    data_type: TYPE_FP32
+    dims: [ 3, 112, 112 ]
+  }
+]
+
+output [
+  {
+    name: "output"
+    data_type: TYPE_FP32
+    dims: [ 512 ]  # Face embedding dimension
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ 8, 16, 32 ]
+  max_queue_delay_microseconds: 100
+}
+
+optimization {
+  execution_accelerators {
+    gpu_execution_accelerator {
+      name: "tensorrt"
+      parameters {
+        key: "precision_mode"
+        value: "FP16"
+      }
+      parameters {
+        key: "max_workspace_size_bytes"
+        value: "1073741824"
+      }
+    }
+  }
+}
