@@ -1,0 +1,28 @@
+yolo:
+  model_type: "yolov8"
+  version: "n" # nano version
+  input_size: [640, 640]
+  conf_thresh: 0.25
+  nms_thresh: 0.45
+  int8_calibration:
+    dataset_size: 1000
+    batch_size: 32
+    cache_file: "calibration_cache.bin"
+
+face_recognition:
+  model_type: "arcface"
+  backbone: "mobilenet_v3"
+  embedding_size: 512
+  input_size: [112, 112]
+  fp16: true
+  batch_size: 32
+
+pipeline:
+  max_faces_per_frame: 32
+  tracking_threshold: 0.6
+  temporal_window: 30
+  gpu_memory_fraction: 0.8
+  streams:
+    preprocessing: 0 # Main stream
+    detection: 1 # YOLO stream
+    recognition: 2 # Face recognition stream
