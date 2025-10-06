@@ -9,8 +9,11 @@ from pycuda.compiler import SourceModule
 import numpy as np
 import cv2
 import time
-from typing import List, Tuple, Optional
+import os
+from typing import List, Tuple, Optional, Dict
 import logging
+from dataclasses import dataclass
+from collections import deque
 
 
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +47,22 @@ class ArcFaceMobileNet(nn.Module):
 
 
 class TensorRTFaceRecognizer:
+    def __del__(self):
+        """Cleanup CUDA resources"""
+        try:
+            if self.input_mem_gpu:
+                self.input_mem_gpu.free()
+            if self.output_mem_gpu:
+                self.output_mem_gpu.free()
+            if self.stream:
+                self.stream.synchronize()
+            if self.context:
+                self.context.destroy()
+            if self.engine:
+                self.engine.destroy()
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+
     """
     TensorRT optimized face recognition engine
     """
@@ -303,12 +322,28 @@ class CUDABatchCropper:
         return output_gpu
 
 
+@dataclass
+class FaceIdentity:
+    name: str
+    embedding: np.ndarray
+    confidence: float
+
+
 class FaceRecognitionPipeline:
     """
     Complete zero-copy face recognition pipeline
     """
 
-    def __init__(self, model_path: str, engine_path: str):
+    def __init__(
+        self, model_path: str, engine_path: str, similarity_threshold: float = 0.6
+    ):
+        self.similarity_threshold = similarity_threshold
+        self.face_database: Dict[str, FaceIdentity] = {}
+
+        # Preprocessing normalization constants
+        self.mean = np.array([0.485, 0.456, 0.406]).reshape(1, 3, 1, 1)
+        self.std = np.array([0.229, 0.224, 0.225]).reshape(1, 3, 1, 1)
+
         # Initialize components
         self.cropper = CUDABatchCropper()
 
@@ -347,6 +382,36 @@ class FaceRecognitionPipeline:
         )
         logger.info(f"ONNX model saved to {onnx_path}")
 
+    def add_face_to_database(
+        self, name: str, embedding: np.ndarray, confidence: float = 1.0
+    ) -> None:
+        """Add a face embedding to the database"""
+        # Normalize embedding
+        embedding = embedding / np.linalg.norm(embedding)
+        self.face_database[name] = FaceIdentity(
+            name=name, embedding=embedding, confidence=confidence
+        )
+
+    def match_face(self, embedding: np.ndarray) -> Optional[FaceIdentity]:
+        """Match a face embedding against the database"""
+        if not self.face_database:
+            return None
+
+        # Normalize query embedding
+        embedding = embedding / np.linalg.norm(embedding)
+
+        # Find best match
+        best_match = None
+        best_similarity = -1
+
+        for identity in self.face_database.values():
+            similarity = np.dot(embedding, identity.embedding)
+            if similarity > best_similarity and similarity > self.similarity_threshold:
+                best_similarity = similarity
+                best_match = identity
+
+        return best_match
+
     def process_frame_with_detections(
         self,
         frame_gpu: cuda.DeviceAllocation,
@@ -377,8 +442,15 @@ class FaceRecognitionPipeline:
         face_batch = np.empty((num_faces, 3, 112, 112), dtype=np.float32)
         cuda.memcpy_dtoh(face_batch, faces_gpu)
 
-        # Run inference
-        features = self.face_recognizer.infer(face_batch)
+        # Normalize input batch
+        face_batch = (face_batch - self.mean) / self.std
+
+        try:
+            # Run inference
+            features = self.face_recognizer.infer(face_batch)
+        except cuda.Error as e:
+            logger.error(f"CUDA error during inference: {e}")
+            return np.array([]).reshape(0, 512)
 
         inference_time = time.time()
 

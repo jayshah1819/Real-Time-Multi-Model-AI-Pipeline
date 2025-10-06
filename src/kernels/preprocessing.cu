@@ -125,10 +125,10 @@ __global__ void fused_preprocess_kernel(
     src_x= fmaxf(0.0f, x_min);
     src_y = fmaxf(0.0f, y_min);
     
-//current frame pointer
+
     const uint8_t* src_frame = src_frames + batch_idx * src_width * src_height * channels;
     
-//we will loop around chanels R,G,B (or B,G,R)
+
     for (int c = 0; c < channels; ++c) {
 
         float pixel_val = bilinear_interpolate(src_frame, src_width, src_height, 
@@ -206,13 +206,17 @@ __global__ void fused_preprocess_batch_kernel(
 
     float src_x = (dst_x + 0.5f) * scale_x - 0.5f;
     float src_y = (dst_y + 0.5f) * scale_y - 0.5f;
-    
+
+
+//Clamp to valid bounds of the source image
     src_x = fmaxf(0.0f, fminf(src_x, src_width - 1.0f));
     src_y = fmaxf(0.0f, fminf(src_y, src_height - 1.0f));
-    
+
+//current frame pointer
     const uint8_t* src_frame = src_frames + batch_idx * src_width * src_height * channels;
     
-
+//we will loop around chanels R,G,B (or B,G,R)
+// pragma unroll tells compiler to unroll the loop for better performance
     #pragma unroll
     for (int c = 0; c < 3; ++c) {
         float pixel_val = bilinear_interpolate(src_frame, src_width, src_height, 
@@ -253,7 +257,7 @@ cudaError_t launch_fused_preprocess(
     dim3 block_size;
     dim3 grid_size;
     
-    if (batch_size == 1) {
+    if (batch_size == 1) { 
 
         block_size = dim3(16, 16, 1);
         grid_size = dim3(
